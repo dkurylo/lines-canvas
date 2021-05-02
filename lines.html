@@ -1,0 +1,1876 @@
+<html>
+	<head>
+		<meta charset="utf-8">
+		<link href="data:image/gif;base64,R0lGODlhEAAQAMQfACnUdyi3aLvRxSeZW1n+rCiLVa7GuSirYyjAbSl3TCjJcXSahZfQsavixDbjh5KzoUSvdChrRnezkkPtlR91RUp8YCejXx1eOh7Ial/Cix2TUyWBTiC/aF+whHXPnv///yH5BAEAAB8ALAAAAAAQABAAAAWZ4CeKTAdBGTOun1EMVoAgHNKw0jYcsgL8GM/IQCnEEL4JgeDA3D4JHc/nWC4BiFZxhwRUrQBOY7Gd/pSESdhTSbx4Xa8DoEBA2q+jwverByALERtGcEh7CAEWEgYXbjA8AZGRBxoCHxGCeRYHnAcWAwUiAo2DLwOnoBuWIg8XEVEFsQUbFA8sAhGuCQkUFAmrLC0LFRULBiwhADs=" rel="icon" type="image/gif"/>
+		<title>Lines Game</title>
+		<style type="text/css">
+			body {
+				-webkit-tap-highlight-color: rgba(0,0,0,0);
+				touch-action: manipulation;
+				user-select: none;
+				-webkit-touch-callout: none;
+				-webkit-user-select: none;
+				-khtml-user-select: none;
+				-moz-user-select: none;
+				-ms-user-select: none;
+				outline: none;
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+		<script type="text/javascript">
+			var gameLinesInstances = [];
+			class Settings {
+				constructor( parentElement, canv, params ) {
+					this.version = '1.00';
+					this.scaleFactor = window.devicePixelRatio > 1 ? 2 : 1;
+					this.reportedLandscape = null;
+					this.reportedSize = null;
+					this.playSound = true;
+
+					this.headerTextFontColor = '#000000';
+					this.headerTextFont = 'Arial';
+					this.headerTextFontSize = 34; //% of cell size
+					this.headerTextPaddingX = 8; //% of cell size
+					this.headerTextPaddingY = 10; //% of cell size
+
+					this.undoIconHoverColor = '#5555FF';
+
+					this.headerPadding = 40; //% of cell size
+
+					this.lineWidth = 1 * this.scaleFactor; //px
+					this.draw3dBalls = true;
+					this.existingBallsSize = 90; //% of cell size
+					this.newBallsSize = 25; //% of cell size
+
+					this.gridColor = '#AAAAAA';
+					this.activeCellColor = '#C0C0C0';
+					this.boardColor = '#F8F8F8';
+					this.hoverCellColor = '#D8D8D8';
+					this.pathCellColor = '#EAEAEA';
+
+					this.xFieldSize = 9;
+					this.yFieldSize = 9;
+					this.colors = [ '#CC0000', '#00BB55', '#0000BB', '#C2C200', '#00C2C2', '#C200C2', '#772200' ];
+					this.lineSize = 5;
+					this.newBallsNumber = 3;
+					this.maxUndoCount = null; //integer to limit number of undos, or null for infinite undos
+
+					this.moveAnimationLength = 50; //in ms per one square moved
+					this.spawnAnimationLength = 300; //in ms
+					this.deleteAnimationLength = 600; //in ms
+
+					this.lightSources = [
+						{
+							xScale: 0.38, //position of light in % to ball size
+							yScale: -0.38, //position of light in % to ball size
+							lum : 255, //total luminance for this light
+							comp : "source-over", //composite opperation
+							highlight: true,
+							spec : false, //if true then use a pretend specular falloff
+							specPower: 1,
+							useAmbient : true
+						}
+					];
+					this.lightAmbient = [40, 40, 40];
+
+					if( params ) {
+						this.setConfigProperty( 'reportedLandscape', params.isLandscape, true );
+						this.setConfigProperty( 'reportedSize', params.boardSize, true );
+						this.setConfigProperty( 'draw3dBalls', params.draw3dBalls, false );
+						this.setConfigProperty( 'xFieldSize', params.xFieldSize, false );
+						this.setConfigProperty( 'yFieldSize', params.yFieldSize, false );
+						this.setConfigProperty( 'colors', params.colors, false );
+						this.setConfigProperty( 'lineSize', params.lineSize, false );
+						this.setConfigProperty( 'newBallsNumber', params.newBallsNumber, false );
+						this.setConfigProperty( 'maxUndoCount', params.maxUndoCount, true );
+						this.setConfigProperty( 'playSound', params.sound, false );
+					}
+
+					this.isMobile = this.isDeviceMobile();
+					this.isLandscape = this.isDeviceLandscape();
+					this.calculateBoardSize( parentElement, canv, this.reportedLandscape, this.reportedSize );
+				}
+
+				isDeviceMobile() {
+					return ('ontouchstart' in document.documentElement);
+				}
+
+				isDeviceLandscape( resizeEvent ) {
+					let isSafari = !!navigator.userAgent.match(/Version\/[\d\.]+.*Safari/);
+					let iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+					let isLandscape = (this.reportedLandscape != undefined && this.reportedLandscape != null) ? this.reportedLandscape : ( this.isMobile ? ( resizeEvent == true && isSafari && iOS ? Math.abs(window.orientation) == 90 : Math.abs(window.orientation) == 90 ) : false );
+					return isLandscape;
+				}
+
+				setConfigProperty( propertyName, propertyValue, acceptNull ) {
+					if( !propertyName || propertyValue === undefined ) return;
+					if( !acceptNull && propertyValue == null ) return;
+					this[propertyName] = propertyValue;
+				}
+
+				calculateBoardSize( parentElement, canv, reportedLandscape, reportedSize ) {
+					let isLandscape = reportedLandscape ? reportedLandscape : this.isLandscape;
+					if( isLandscape ) {
+						this.canvasHeight = this.scaleFactor * (reportedSize ? reportedSize : ( this.isMobile ? parentElement.clientHeight * 0.95 : 550 ) );
+
+						this.cellSize = (this.canvasHeight - this.lineWidth - 2*(this.scaleFactor-1))/this.xFieldSize;
+						this.headerPaddingAmount = Math.floor( this.headerPadding*this.cellSize/100 );
+						this.headerTextPaddingXAmount = Math.floor( this.headerTextPaddingX*this.cellSize/100 );
+						this.headerTextPaddingYAmount = Math.floor( this.headerTextPaddingY*this.cellSize/100 );
+						this.headerTextFontSizeAmount = Math.floor( this.cellSize * this.headerTextFontSize / 100 );
+						this.headerTextFontSizePadding = Math.floor( this.headerTextFontSize * 0.1 );
+
+						this.xFieldPos = this.lineWidth + 3*this.cellSize + this.headerPaddingAmount;
+						this.canvasWidth = this.xFieldPos + this.xFieldSize * this.cellSize + this.lineWidth + 2*(this.scaleFactor-1);
+						this.yFieldPos = 0;
+					} else {
+						this.canvasWidth = this.scaleFactor * ( reportedSize ? reportedSize : ( this.isMobile ? parentElement.clientWidth * 0.95 : 550 ) );
+
+						this.cellSize = (this.canvasWidth - this.lineWidth - 2*(this.scaleFactor-1))*(1/this.xFieldSize);
+						this.headerPaddingAmount = Math.floor( this.headerPadding*this.cellSize/100 );
+						this.headerTextPaddingXAmount = Math.floor( this.headerTextPaddingX*this.cellSize/100 );
+						this.headerTextPaddingYAmount = Math.floor( this.headerTextPaddingY*this.cellSize/100 );
+						this.headerTextFontSizeAmount = Math.floor( this.cellSize * this.headerTextFontSize / 100 );
+						this.headerTextFontSizePadding = Math.floor( this.headerTextFontSize * -0.1 );
+						
+						this.xFieldPos = 0;
+						this.canvasHeight = 2*this.lineWidth + (this.yFieldSize + 1) * this.cellSize + this.headerPaddingAmount + this.headerTextPaddingYAmount + this.headerTextFontSizePadding + this.headerTextFontSizeAmount + 2*(this.scaleFactor-1);
+						this.yFieldPos = (this.canvasHeight - this.cellSize*this.yFieldSize) - this.lineWidth - 2*(this.scaleFactor-1);
+					}
+					this.ballSize = Math.round( (this.cellSize * this.existingBallsSize / 100 - this.lineWidth)/2 );
+					if( this.ballSize <= 0 || this.ballSize > this.cellSize - this.lineWidth ) this.ballSize = Math.round( ( this.cellSize - this.lineWidth )/2 );
+
+					this.newBallSize = Math.round( ( this.cellSize * this.newBallsSize / 100 - this.lineWidth)/2 );
+					if( this.newBallSize <= 0 || this.newBallSize > this.cellSize - this.lineWidth ) this.newBallSize = Math.round( 0.3*(this.cellSize - this.lineWidth)/2 );
+
+					canv.style.width = this.canvasWidth / this.scaleFactor + 'px';
+					canv.style.height = this.canvasHeight / this.scaleFactor + 'px';
+					canv.width = this.canvasWidth;
+					canv.height = this.canvasHeight;
+				}
+			}
+
+			class Point {
+				constructor( x, y ) {
+					this.x = x;
+					this.y = y;
+				}
+
+				clone() {
+					let clonedPoint = new Point();
+					clonedPoint.x = this.x;
+					clonedPoint.y = this.y;
+					return clonedPoint;
+				}
+			}
+
+			class Cache {
+				constructor() {
+					this.ballDataCache = new Map();
+					this.halfPi = Math.PI/2;
+					this.twoPi = 2 * Math.PI;
+				}
+
+				precacheGraphics( game ) {
+					this.ballsRenderCanvas = document.createElement('canvas');
+					this.ballsRenderCanvas.width = game.settings.colors.length * 2*(game.settings.ballSize + 1);
+					this.ballsRenderCanvas.height = 2*(game.settings.ballSize + 1);
+					let ballsRenderCtx = this.ballsRenderCanvas.getContext('2d');
+					for( let colorIndex = 0; colorIndex < game.settings.colors.length; colorIndex++ ) {
+						let pointOverride = new Point( colorIndex*2*(game.settings.ballSize + 1) + game.settings.ballSize + 1, game.settings.ballSize + 1 );
+						let radOverride = game.settings.ballSize;
+						let ball = new Ball();
+						ball.rad = radOverride;
+						ball.colorIndex = colorIndex;
+						game.drawBall( ball, pointOverride, radOverride, ballsRenderCtx, null );
+					}
+					this.nextBallsRenderCanvas = document.createElement('canvas');
+					this.nextBallsRenderCanvas.width = game.settings.colors.length * 2*(game.settings.newBallSize + 1);
+					this.nextBallsRenderCanvas.height = 2*(game.settings.newBallSize + 1);
+					let nextBallsRenderCtx = this.nextBallsRenderCanvas.getContext('2d');
+					for( let colorIndex = 0; colorIndex < game.settings.colors.length; colorIndex++ ) {
+						let pointOverride = new Point( colorIndex*2*(game.settings.newBallSize + 1) + game.settings.newBallSize + 1, game.settings.newBallSize + 1 );
+						let radOverride = game.settings.newBallSize;
+						let ball = new Ball( game.settings, undefined, undefined, new Point( 0, 0 ), game.settings.newBallSize );
+						ball.rad = radOverride;
+						ball.colorIndex = colorIndex;
+						game.drawBall( ball, pointOverride, radOverride, nextBallsRenderCtx, null );
+					}
+				}
+			}
+
+			class Ball {
+				constructor( settings, field, newBalls ) {
+					if( settings ) {
+						this.posPriorities = this.getPosPriorities( settings );
+						this.pos = this.getBallPosition( settings, field, newBalls );
+						this.rad = settings.newBallSize;
+						this.colorIndex = Math.floor(Math.random()*settings.colors.length);
+						this.colorAnim = null;
+						this.colorAlpha = null;
+					}
+				}
+
+				getBallPosition( settings, field, newBalls ) {
+					let pos = new Point( null, null );
+					if( field ) {
+						for( let i=0; i<this.posPriorities.length; i++ ) {
+							const positionPriority = this.posPriorities[i];
+							const cell = field[positionPriority.y][positionPriority.x];
+							let hasBall = false;
+							if( cell.ball != null ) {
+								hasBall = true;
+								continue;
+							}
+							for( const newBallIndex in newBalls ) {
+								const ball = newBalls[newBallIndex];
+								if( ball == null || ball.pos == null ) continue;
+								let fieldPoint = new Point( positionPriority.x, positionPriority.y );
+								if( Cell.samePoint( ball.pos, fieldPoint ) ) {
+									hasBall = true;
+									break;
+								}
+							}
+							if( !hasBall ) {
+								pos = new Point( positionPriority.x, positionPriority.y );
+							}
+						}
+					}
+					return pos;
+				}
+
+				getPosPriorities( settings ) {
+					let allPositions = [];
+					for( let y=0; y<settings.yFieldSize; y++ ) {
+						let row = [];
+						for( let x=0; x<settings.xFieldSize; x++ ) {
+							allPositions.push( new Point(x,y) );
+						}
+					}
+					let posPriorities = [];
+					while( allPositions.length ) {
+						const rndPositionIndex = Math.floor(Math.random()*allPositions.length);
+						posPriorities.push( allPositions[rndPositionIndex] );
+						allPositions.splice( rndPositionIndex, 1 );
+					}
+					return posPriorities;
+				}
+
+				clearPosPriorities() {
+					this.posPriorities = null;
+				}
+
+				clone() {
+					let clonedBall = new Ball();
+					clonedBall.posPriorities = JSON.parse( JSON.stringify( this.posPriorities ) );
+					clonedBall.pos = this.pos != null ? this.pos.clone() : null;
+					clonedBall.rad = this.rad;
+					clonedBall.colorIndex = this.colorIndex;
+					clonedBall.colorAnim = this.colorAnim;
+					clonedBall.colorAlpha = this.colorAlpha;
+					return clonedBall;
+				}
+			}
+
+			class Cell {
+				constructor( pos, ball ) {
+					this.pos = pos;
+					if( ball ) {
+						this.ball = ball;
+					} else {
+						this.ball = null;
+					}
+				}
+
+				clone() {
+					let clonedCell = new Cell();
+					clonedCell.pos = this.pos != null ? this.pos.clone() : null;
+					clonedCell.ball = this.ball != null ? this.ball.clone() : null;
+					return clonedCell;
+				}
+
+				static sameCell( cell1, cell2 ) {
+					return cell1 != null && cell2 != null && this.samePoint( cell1.pos, cell2.pos );
+				}
+
+				static samePoint( point1, point2 ) {
+					return point1 != null && point2 != null && point1.x == point2.x && point1.y == point2.y;
+				}
+			}
+
+			class DeleteAnimation {
+				constructor() {
+					this.animationStartTime = 0;
+					this.animationInProgress = false;
+					this.animationComplete = false;
+					this.animatedCells = [];
+				}
+			}
+
+			class MoveAnimation {
+				constructor() {
+					this.animationStartTime = 0;
+					this.animationInProgress = false;
+					this.animationComplete = false;
+					this.animationPath = [];
+					this.animatedBall = null;
+				}
+			}
+
+			class SpawnAnimation {
+				constructor() {
+					this.animationStartTime = 0;
+					this.animationInProgress = false;
+					this.animationComplete = false;
+					this.animatedBalls = [];
+				}
+			}
+
+			class UndoSnapshot {
+				constructor( data ) {
+					this.score = data.score;
+					this.field = [];
+					for( let y=0; y<data.field.length; y++ ) {
+						const row = data.field[y];
+						let newRow = [];
+						for( let x=0; x<row.length; x++ ) {
+							newRow.push( row[x].clone() );
+						}
+						this.field.push( newRow );
+					}
+					this.newBalls = [];
+					for( let x=0; x<data.newBalls.length; x++ ) {
+						this.newBalls.push( data.newBalls[x].clone() );
+					}
+					this.newBallsNext = [];
+					for( let x=0; x<data.newBallsNext.length; x++ ) {
+						this.newBallsNext.push( data.newBallsNext[x].clone() );
+					}
+				}
+			}
+
+			class Data {
+				constructor( settings ) {
+					this.gameResultsUpdated = false;
+					this.score = 0;
+					this.field = this.initField( settings );
+
+					this.newBallsNext = this.createBalls( settings, settings.lineSize );
+					this.newBalls = this.initNewBalls( settings );
+					this.putNewBallsToField( settings );
+					this.newBalls = this.initNewBalls( settings );
+
+					this.undoSnapshot = null; 
+					this.mousePos = null;
+					this.hoverCell = null;
+					this.hoverCellPrev = null;
+					this.activeCell = null;
+					this.targetCell = null;
+					this.path = [];
+					this.undoCount = 0;
+					this.moveAnimation = new MoveAnimation();
+					this.deleteAnimation1 = new DeleteAnimation();
+					this.spawnAnimation1 = new SpawnAnimation();
+					this.deleteAnimation2 = new DeleteAnimation();
+				}
+
+				setUndoSnapshot() {
+					this.undoSnapshot = new UndoSnapshot( this );
+				}
+
+				resetUndoSnapshot( game ) {
+					if( this.undoSnapshot == null ) return;
+					this.score = this.undoSnapshot.score;
+					this.field = this.undoSnapshot.field;
+					this.newBalls = this.undoSnapshot.newBalls;
+					this.newBallsNext = this.undoSnapshot.newBallsNext;
+					this.undoSnapshot = null;
+					this.undoCount = this.undoCount + 1;
+					Sounds.playSound( game, game.sounds.sound_undo );
+				}
+
+				initField( settings ) {
+					let field = [];
+					for( let y=0; y<settings.yFieldSize; y++ ) {
+						let row = [];
+						for( let x=0; x<settings.xFieldSize; x++ ) {
+							row.push( new Cell( new Point(x,y) ) );
+						}
+						field.push( row );
+					}
+					return field;
+				}
+
+				initNewBalls( settings ) {
+					let newBalls = [];
+					for( let i=0; i<this.newBallsNext.length; i++ ) {
+						let ball = this.newBallsNext[i];
+						ball.pos = ball.getBallPosition( settings, this.field, newBalls );
+						newBalls.push( ball.clone() );
+					}
+					this.newBallsNext = this.createBalls( settings );
+					return newBalls;
+				}
+
+				createBalls( settings, lineSize ) {
+					let newBalls = [];
+					for( let i=0; i<(lineSize !== undefined ? lineSize : settings.newBallsNumber); i++ ) {
+						newBalls.push( new Ball( settings, this.field, newBalls ) );
+					}
+					return newBalls;
+				}
+
+				putNewBallsToField( settings ) {
+					for( let y=0; y<this.field.length; y++ ) {
+						const row = this.field[y];
+						for( let x=0; x<row.length-settings.lineSize+1; x++ ) {
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							cell.ball.clearPosPriorities(); //this data is not needed anymore at this point
+						}
+					}
+					for( const ballIndex in this.newBalls ) {
+						const ball = this.newBalls[ballIndex];
+						if( ball.pos.x == null || ball.pos.y == null ) continue;
+						ball.rad = settings.ballSize;
+						this.field[ball.pos.y][ball.pos.x].ball = ball;
+					}
+				}
+
+				recalculateNewBallsPosition( settings ) {
+					for( const ballIndex in this.newBalls ) {
+						const ball = this.newBalls[ballIndex];
+						if( ball.pos.x == null || ball.pos.y == null || this.field[ball.pos.y][ball.pos.x].ball != null ) {
+							this.newBalls[ballIndex] = null;
+							ball.pos = ball.getBallPosition( settings, this.field, this.newBalls );
+							this.newBalls[ballIndex] = ball;
+						}
+					}
+				}
+
+				findSequenceCells( settings ) {
+					let cells = [];
+					for( let y=0; y<this.field.length; y++ ) {
+						const row = this.field[y];
+						for( let x=0; x<row.length-settings.lineSize+1; x++ ) { //horizontal
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							let streakCells = [ cell ];
+							for( let lineIndex=x+1; lineIndex<this.field[y].length; lineIndex++ ) {
+								let lineCell = this.field[y][lineIndex];
+								if( lineCell.ball == null || lineCell.ball.colorIndex != cell.ball.colorIndex ) break;
+								streakCells.push( lineCell );
+							}
+							this.cellsAlreadyExist( settings, streakCells, cells );
+						}
+					}
+					for( let y=0; y<this.field.length-settings.lineSize+1; y++ ) {
+						const row = this.field[y];
+						for( let x=0; x<row.length; x++ ) { //vertical
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							let streakCells = [ cell ];
+							for( let lineIndex=y+1; lineIndex<this.field.length; lineIndex++ ) {
+								let lineCell = this.field[lineIndex][x];
+								if( lineCell.ball == null || lineCell.ball.colorIndex != cell.ball.colorIndex ) break;
+								streakCells.push( lineCell );
+							}
+							this.cellsAlreadyExist( settings, streakCells, cells );
+						}
+						for( let x=0; x<row.length-settings.lineSize+1; x++ ) { //topleft-bottomright
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							let streakCells = [ cell ];
+							let xLineIndex = x+1;
+							for( let yLineIndex=y+1; yLineIndex<this.field.length; yLineIndex++ ) {
+								if( xLineIndex >= this.field[yLineIndex].length ) break;
+								let lineCell = this.field[yLineIndex][xLineIndex];
+								if( lineCell.ball == null || lineCell.ball.colorIndex != cell.ball.colorIndex ) break;
+								streakCells.push( lineCell );
+								xLineIndex++;
+							}
+							this.cellsAlreadyExist( settings, streakCells, cells );
+						}
+						for( let x=settings.lineSize-1; x<row.length; x++ ) { //topright-bottomleft
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							let streakCells = [ cell ];
+							let xLineIndex = x-1;
+							for( let yLineIndex=y+1; yLineIndex<this.field.length; yLineIndex++ ) {
+								if( xLineIndex < 0 ) break;
+								let lineCell = this.field[yLineIndex][xLineIndex];
+								if( lineCell.ball == null || lineCell.ball.colorIndex != cell.ball.colorIndex ) break;
+								streakCells.push( lineCell );
+								xLineIndex--;
+							}
+							this.cellsAlreadyExist( settings, streakCells, cells );
+						}
+					}
+					return cells;
+				}
+
+				cellsAlreadyExist( settings, streakCells, cells ) {
+					if( streakCells.length < settings.lineSize ) return;
+					for( let streakCellIndex in streakCells ) {
+						let streakCell = streakCells[streakCellIndex];
+						if( !this.cellAlreadyExists( streakCell, cells ) ) {
+							cells.push( streakCell );
+						}
+					}
+				}
+
+				cellAlreadyExists( streakCell, cells ) {
+					let exists = false;
+					for( let i=0; i<cells.length; i++ ) {
+						const cellItem = cells[i];
+						if( cellItem.pos.x != streakCell.pos.x || cellItem.pos.y != streakCell.pos.y ) continue;
+						exists = true;
+						break;
+					}
+					return exists;
+				}
+
+				fieldIsEmpty( settings ) {
+					for( let y=0; y<this.field.length; y++ ) {
+						const row = this.field[y];
+						for( let x=0; x<row.length; x++ ) {
+							let cell = row[x];
+							if( cell.ball != null ) return false;
+						}
+					}
+					return true;
+				}
+
+				resetBallRadiuses( settings ) {
+					for( let y=0; y<this.field.length; y++ ) {
+						const row = this.field[y];
+						for( let x=0; x<row.length; x++ ) {
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+							cell.ball.rad = settings.ballSize;
+						}
+					}
+					for( const ballIndex in this.newBalls ) {
+						const ball = this.newBalls[ballIndex];
+						ball.rad = settings.newBallSize;
+					}
+					for( const ballIndex in this.newBallsNext ) {
+						const ball = this.newBallsNext[ballIndex];
+						ball.rad = settings.newBallSize;
+					}
+					if( this.undoSnapshot != null ) {
+						for( let y=0; y<this.undoSnapshot.field.length; y++ ) {
+							const row = this.undoSnapshot.field[y];
+							for( let x=0; x<row.length; x++ ) {
+								let cell = row[x];
+								if( cell.ball == null ) continue;
+								cell.ball.rad = settings.ballSize;
+							}
+						}
+						for( const ballIndex in this.undoSnapshot.newBalls ) {
+							const ball = this.undoSnapshot.newBalls[ballIndex];
+							ball.rad = settings.newBallSize;
+						}
+						for( const ballIndex in this.undoSnapshot.newBallsNext ) {
+							const ball = this.undoSnapshot.newBallsNext[ballIndex];
+							ball.rad = settings.newBallSize;
+						}
+					}
+				}
+
+				addScore( settings, numberOfBalls ) {
+					this.score += ( numberOfBalls - (settings.lineSize - 1) ) * numberOfBalls;
+				}
+			}
+
+			class GameLines {
+				constructor( elementId, canvasId, params ) {
+					this.cookieName = 'lines_cookie';
+					this.initTopScores();
+					if( gameLinesInstances === undefined ) gameLinesInstances = new Map();
+
+					if( canvasId === undefined || canvasId == null ) canvasId = 'gameLinesInstance_' + (Object.keys(gameLinesInstances).length + 1);
+					this.parentElement = null;
+					if( elementId !== undefined && elementId != null ) {
+						this.parentElement = document.getElementById( elementId );
+					}
+					if( this.parentElement === undefined || this.parentElement == null ) {
+						this.parentElement = document.body;
+					}
+
+					this.canv = document.createElement( 'canvas' );
+					this.canv.id = canvasId;
+					this.parentElement.appendChild( this.canv );
+					this.ctx = this.canv.getContext("2d");
+					this.ctx.scale(2,2);
+
+					this.settings = new Settings( this.parentElement, this.canv, params );
+
+					this.cache = new Cache();
+					this.cache.precacheGraphics( this );
+					
+					this.sounds = new Sounds();
+					
+					this.newGame();
+
+					this.mouseDownPosition = new Point( 0, 0 );
+					this.mouseUpPosition = new Point( 0, 0 );
+					this.animationCurrentTime = 0;
+					this.requestAnimationReference = null;
+
+					gameLinesInstances[ canvasId ] = this;
+					
+					this.draw();
+
+					this.canv.addEventListener( 'mousedown', function mouseDownAction(event) { GameLines.requestGameAction( 'mousedown', event, canvasId ); }, false );
+					this.canv.addEventListener( 'mouseup',   function mouseUpAction(event)   { GameLines.requestGameAction( 'mouseup',   event, canvasId ); }, false );
+					this.canv.addEventListener( 'mousemove', function mouseMoveAction(event) { GameLines.requestGameAction( 'mousemove', event, canvasId ); }, false );
+					if( this.settings.isMobile ) {
+						this.canv.addEventListener( 'orientationchange', function windowOrientationChangeAction(event) { GameLines.detectOrientationChange(); } );
+					}
+
+					this.readCookieData();
+
+					return this;
+				}
+
+				static detectOrientationChange() {
+					for( let gameInstanceIndex in gameLinesInstances ) {
+						gameLinesInstances[ gameInstanceIndex ].detectOrientationChange();
+					}
+				}
+
+				detectOrientationChange() {
+					let isLandscape = this.settings.isDeviceLandscape( true );
+					if( this.settings.isLandscape != isLandscape ) {
+						this.settings.isLandscape = isLandscape;
+						this.settings.calculateBoardSize( this.parentElement, this.canv );
+						this.cache = new Cache();
+						this.cache.precacheGraphics( this );
+						this.data.resetBallRadiuses( this.settings );
+						this.drawBoard();
+					}
+				}
+
+				static requestGameAction( action, event, canvasId ) {
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					event.preventDefault();
+					gameLinesInstances[ canvasId ].requestAction( action, event, canvasId );
+					return false;
+				}
+
+				requestAction( action, event, canvasId ) {
+					this.requestAnimationReference = requestAnimationFrame( function responseAnimationFrame(timestamp) { GameLines.processGameAction( action, event, canvasId, timestamp ); } );
+				}
+
+				static processGameAction( action, event, canvasId, timestamp ) {
+					gameLinesInstances[ canvasId ].processAction( action, event, timestamp );
+				}
+
+				processAction( action, event, timestamp ) {
+					this.animationCurrentTime = timestamp || new Date().getTime();
+					if( action == 'mousedown' ) {
+						this.mouseDown( event, timestamp );
+					} else if( action == 'mouseup' ) {
+						this.mouseUp( event, timestamp );
+					} else if( action == 'mousemove' ) {
+						this.mouseMove( event, timestamp );
+					} else if( action == 'animation' ) {
+						this.gameTick( timestamp );
+					}
+				}
+
+				updateTopScores() {
+					let currentScore = this.data.score;
+					let topScoresSorted = this.topScores.sort( function(a, b) { return b - a; } );
+					let prevScoreValue = currentScore;
+					let isHiScore = false;
+					for( let topScoreIndex in topScoresSorted ) {
+						if( prevScoreValue >= topScoresSorted[topScoreIndex] ) {
+							isHiScore = true;
+							let currentScoreValue = topScoresSorted[topScoreIndex];
+							topScoresSorted[topScoreIndex] = prevScoreValue;
+							prevScoreValue = currentScoreValue;
+						}
+					}
+					this.topScores = topScoresSorted;
+					if( isHiScore ) {
+						Sounds.playSound( this, this.sounds.sound_hiscore );
+					} else {
+						Sounds.playSound( this, this.sounds.sound_gameover );
+					}
+				}
+
+				initTopScores() {
+					this.topScores = [ 0, 0, 0, 0, 0 ];
+				}
+
+				newGame() {
+					this.data = new Data( this.settings );
+					this.initGame = true;
+					this.startGame = true;
+					this.endGame = false;
+				}
+
+				calculateGameResults() {
+					if( this.data.gameResultsUpdated ) return;
+					this.updateTopScores();
+					this.setCookieData();
+					this.data.gameResultsUpdated = true;
+				}
+
+				readCookieData() {
+					let cookie = this.getCookie( this.cookieName );
+					if( cookie ) {
+						if( cookie === undefined || cookie == null ) return;
+						let values = JSON.parse( cookie );
+						if( values.topScores == null ) {
+							initTopScores();
+						} else {
+							this.topScores = values.topScores;
+						}
+					}
+				}
+				
+				setCookieData() {
+					let data = {
+						topScores: this.topScores
+					};
+					this.setCookie( this.cookieName, data, 365 );
+				}
+
+				getCookie( cookieName ) {
+					let nameEQ = cookieName + "=";
+					let ca = document.cookie.split(';');
+					for( let i = 0; i < ca.length; i++ ) {
+						let c = ca[i];
+						while( c.charAt(0) == ' ' ) c = c.substring( 1, c.length );
+						if( c.indexOf( nameEQ ) == 0 ) return c.substring( nameEQ.length, c.length );
+					}
+					return null;
+				}
+
+				setCookie( cookieName, data, days ) {
+					let expires = "";
+					if( !days ) days = 365;
+					if( !cookieName ) cookieName = this.cookieName + "_Default";
+					let date = new Date();
+					date.setTime( date.getTime() + ( days*24*60*60*1000 ) );
+					expires = "; expires=" + date.toUTCString();
+					document.cookie = cookieName + "=" + ( JSON.stringify( data ) || "")  + expires + "; path=/";
+				}
+
+				animationInProgress() {
+					return this.data.moveAnimation.animationInProgress == true || this.data.deleteAnimation1.animationInProgress == true || this.data.spawnAnimation1.animationInProgress == true || this.data.deleteAnimation2.animationInProgress == true;
+				}
+
+				gameTick( timestamp ) {
+					if( !this.animationInProgress() ) {
+						cancelAnimationFrame( this.requestAnimationReference );
+						return;
+					}
+					this.draw();
+				}
+
+				mouseMove( event, timestamp ) {
+					this.captureMousePosition( event );
+					if( this.animationInProgress() ) return;
+					this.setHoverCell();
+					this.drawBoard();
+				}
+
+				mouseDown( event, timestamp ) {
+					if( this.animationInProgress() ) return;
+					this.captureMousePosition( event );
+					let cell = this.getCell( this.data.mousePos );
+					if( cell == null ) {
+						this.data.activeCell = null;
+						this.data.targetCell = null;
+						this.data.path = [];
+					} else {
+						if( this.data.activeCell != null ) {
+							if( Cell.sameCell( this.data.hoverCell, this.data.activeCell ) ) {
+								if( this.settings.isMobile ) {
+									this.data.hoverCell = null;
+								}
+								this.data.activeCell = null;
+							} else if( cell.ball == null ) {
+								if( this.data.path.length != 0 ) {
+									//this.data.targetCell = cell;
+								}
+							} else {
+								this.data.activeCell = cell;
+							}
+						} else {
+							if( cell.ball != null ) {
+								this.data.activeCell = cell;
+							}
+						}
+					}
+					this.draw();
+				}
+
+				mouseUp( event, timestamp ) {
+					if( this.animationInProgress() ) return;
+					this.captureMousePosition( event );
+					let cell = this.getCell( this.data.mousePos );
+					if( cell == null ) {
+						this.data.activeCell = null;
+						this.data.targetCell = null;
+						this.data.path = [];
+					} else {
+						if( this.data.activeCell != null ) {
+							if( Cell.sameCell( this.data.hoverCell, this.data.activeCell ) ) {
+								//this.data.activeCell = null;
+							} else if( cell.ball == null ) {
+								if( this.data.path.length != 0 ) {
+									this.data.targetCell = cell;
+								}
+							} else {
+								this.data.activeCell = cell;
+							}
+						} else {
+							/*if( cell.ball != null ) {
+								this.data.activeCell = cell;
+							}*/
+						}
+					}
+
+					if( this.isUndoEnabled() && this.isMouseHover( this.getUndoIconLocation() ) ) {
+						this.data.resetUndoSnapshot( this );
+					}
+					if( this.endGame && this.isMouseHover( this.getStartOverButtonLocation() ) ) {
+						this.newGame();
+						Sounds.playSound( this, this.sounds.sound_newgame );
+					}
+
+					this.draw();
+				}
+
+				setHoverCell( doSet ) {
+					let cell = this.getCell( this.data.mousePos );
+					if( doSet == false || cell == null ) {
+						this.data.hoverCellPrev = null;
+						this.data.hoverCell = null;
+						this.data.path = [];
+					} else if( cell != null ) {
+						this.data.hoverCellPrev = this.data.hoverCell;
+						this.data.hoverCell = cell;
+						if( cell.ball != null ) {
+							this.data.path = [];
+						}
+					}
+				}
+
+				checkEndGameNoCells() {
+					for( const ballIndex in this.data.newBalls ) {
+						const ball = this.data.newBalls[ballIndex];
+						if( ball.pos.x == null || ball.pos.y == null ) {
+							this.endGame = true;
+							break;
+						}
+					}
+					return this.endGame;
+				}
+
+				checkEndGameNoMoves() {
+					for( let y=0; y<this.data.field.length; y++ ) {
+						let row = this.data.field[y];
+						for( let x=0; x<row.length; x++ ) {
+							let cell = row[x];
+							if( cell.ball == null ) return this.endGame;
+						}
+					}
+					this.endGame = true;
+					return this.endGame;
+				}
+
+				draw() {
+					this.drawBoard();
+					this.drawGameLogic();
+				}
+
+				drawBoard() {
+					this.ctx.clearRect(0, 0, this.canv.width, this.canv.height);
+					this.drawHeader();
+					this.drawGrid();
+					if( !this.endGame ) {
+						this.drawPath();
+						this.drawCursor();
+						this.drawCellHover();
+						this.drawCellActive();
+					}
+					this.drawNewBalls();
+					this.drawBalls();
+					if( this.endGame ) {
+						this.calculateGameResults();
+						this.drawEndGame();
+					}
+				}
+
+				drawGameLogic() {
+					if( !this.endGame ) {
+						this.moveBall();
+						this.deleteAfterMove();
+						this.spawnBalls();
+						this.deleteAfterSpawn();
+						this.resetSequence();
+					}
+				}
+
+				drawCursor() {
+					this.canv.style.cursor = null;
+
+					const undoItemLocation = this.getUndoIconLocation();
+					const isMouseHoverUndo = this.isMouseHover( undoItemLocation );
+					const isUndoEnabled = this.isUndoEnabled();
+					if( isMouseHoverUndo && isUndoEnabled ) {
+						this.canv.style.cursor = 'pointer';
+						return;
+					}
+
+					if( this.data.hoverCell == null ) return;
+					const ball = this.data.field[this.data.hoverCell.pos.y][this.data.hoverCell.pos.x].ball;
+					if( ball != null ) {
+						this.canv.style.cursor = 'pointer';
+						return;
+					}
+					if( this.data.activeCell != null && this.data.path.length == 0 ) {
+						this.canv.style.cursor = 'not-allowed';
+						return;
+					}
+				}
+
+				drawCellHover() {
+					if( this.data.hoverCell == null ) return;
+					if( this.data.activeCell != null && this.data.path.length == 0 ) return;
+					const ball = this.data.field[this.data.hoverCell.pos.y][this.data.hoverCell.pos.x].ball;
+					if( ( this.data.activeCell == null && ball != null ) || ( this.data.activeCell != null && ball == null ) ) {
+						this.drawRectForCell( this.data.hoverCell, this.settings.hoverCellColor );
+					}
+				}
+
+				drawCellActive() {
+					if( this.data.activeCell == null ) return;
+					if( this.data.moveAnimation.animationInProgress == true ) return;
+					this.drawRectForCell( this.data.activeCell, this.settings.activeCellColor );
+				}
+
+				drawHeader() {
+					const isDeviceLandscape = this.settings.isLandscape;
+
+					let nextBallsElemPos = new Point( isDeviceLandscape ? 0 : this.settings.xFieldPos,
+													  isDeviceLandscape ? this.settings.headerTextFontSizePadding + this.settings.headerTextFontSizeAmount + this.settings.headerTextPaddingYAmount : this.settings.yFieldPos - this.settings.cellSize - this.settings.headerPaddingAmount );
+					let nextBallsElemSize = new Point( this.settings.cellSize + this.settings.lineWidth,
+													   this.settings.cellSize + this.settings.lineWidth );
+
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.font = '' + this.settings.headerTextFontSizeAmount + 'px ' + this.settings.headerTextFont;
+					this.ctx.fillText( 'Next:', nextBallsElemPos.x + this.settings.headerTextPaddingXAmount, nextBallsElemPos.y - this.settings.headerTextPaddingYAmount );
+
+					this.ctx.fillStyle = this.settings.boardColor;
+					this.ctx.fillRect( nextBallsElemPos.x, nextBallsElemPos.y,
+									   this.data.newBalls.length*(nextBallsElemSize.x - this.settings.lineWidth) + this.settings.lineWidth, nextBallsElemSize.y );
+					for( let x=0; x<=this.data.newBalls.length; x++ ) {
+						this.drawLine( nextBallsElemPos.x + x*( nextBallsElemSize.x - this.settings.lineWidth ), nextBallsElemPos.y,
+									   this.settings.lineWidth, nextBallsElemSize.y,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=1; y++ ) {
+						this.drawLine( nextBallsElemPos.x, nextBallsElemPos.y + y*( nextBallsElemSize.y - this.settings.lineWidth ),
+									   this.data.newBalls.length*( nextBallsElemSize.x - this.settings.lineWidth ) + this.settings.lineWidth, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+					for( let newBallIndex=0; newBallIndex < this.data.newBalls.length; newBallIndex++ ) {
+						const newBall = this.data.newBalls[ newBallIndex ];
+						let point = new Point( nextBallsElemPos.x + 0.5*this.settings.lineWidth + (newBallIndex + 0.5)*this.settings.cellSize,
+											   nextBallsElemPos.y + 0.5*this.settings.lineWidth + 0.5*this.settings.cellSize );
+						this.drawBall( newBall, point, this.settings.ballSize, this.ctx, this.cache.ballsRenderCanvas );
+					}
+
+					this.drawUndoButton();
+
+					let scoreElemPos = new Point( isDeviceLandscape ? 0 : this.canv.width - 2*(this.settings.scaleFactor-1) - 3*this.settings.cellSize + this.settings.xFieldPos - this.settings.lineWidth,
+												  isDeviceLandscape ? 3*(this.settings.headerTextFontSizeAmount + this.settings.headerTextPaddingYAmount) + 2*(this.settings.headerTextFontSizePadding + this.settings.headerPaddingAmount + this.settings.cellSize) : this.settings.yFieldPos - this.settings.cellSize - this.settings.headerPaddingAmount );
+					let scoreElemSize = new Point( 3*this.settings.cellSize,
+												   this.settings.cellSize + this.settings.lineWidth );
+
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.font = '' + this.settings.headerTextFontSizeAmount + 'px ' + this.settings.headerTextFont;
+					this.ctx.fillText( 'Score:', scoreElemPos.x + this.settings.headerTextPaddingXAmount, scoreElemPos.y - this.settings.headerTextPaddingYAmount );
+
+					this.ctx.fillStyle = this.settings.boardColor;
+					this.ctx.fillRect( scoreElemPos.x, scoreElemPos.y,
+									   scoreElemSize.x + this.settings.lineWidth, scoreElemSize.y );
+					for( let x=0; x<=1; x++ ) {
+						this.drawLine( scoreElemPos.x + x*scoreElemSize.x, scoreElemPos.y,
+									   this.settings.lineWidth, scoreElemSize.y,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=1; y++ ) {
+						this.drawLine( scoreElemPos.x, scoreElemPos.y + y*(scoreElemSize.y - this.settings.lineWidth),
+									   scoreElemSize.x, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+
+					const oldTextBaselineScore = this.ctx.textBaseline;
+					const oldTextAlignScore = this.ctx.textAlign;
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.textAlign = 'center';
+					let scoreElemFontSize = this.settings.ballSize*2;
+					this.ctx.font = '' + scoreElemFontSize*1.17 + 'px ' + this.settings.headerTextFont;
+					this.ctx.textBaseline = 'middle';
+					this.ctx.fillText( this.data.score, scoreElemPos.x + 0.5*(scoreElemSize.x + this.settings.lineWidth), scoreElemPos.y + scoreElemSize.y/2 + scoreElemFontSize*0.06 );
+					this.ctx.textAlign = oldTextAlignScore;
+					this.ctx.textBaseline = oldTextBaselineScore;
+				}
+
+				getUndoIconLocation() {
+					const isDeviceLandscape = this.settings.isLandscape;
+					let startPoint = new Point( isDeviceLandscape ? 0 : this.canv.width - 2*(this.settings.scaleFactor-1) - 5*this.settings.cellSize + this.settings.xFieldPos - this.settings.lineWidth,
+												isDeviceLandscape ? 2*(this.settings.headerTextFontSizeAmount + this.settings.headerTextPaddingYAmount) + 1*(this.settings.headerTextFontSizePadding + this.settings.headerPaddingAmount + this.settings.cellSize ) : this.settings.yFieldPos - this.settings.cellSize - this.settings.headerPaddingAmount );
+					let width = isDeviceLandscape ? 3*this.settings.cellSize : this.settings.cellSize;
+					let height = this.settings.cellSize + this.settings.lineWidth;
+					let endPoint = new Point( startPoint.x + width + this.settings.lineWidth, startPoint.y + height );
+					return {
+						startPoint: startPoint,
+						endPoint: endPoint,
+						width: width,
+						height: height
+					}
+				}
+
+				drawUndoButton() {
+					let undoItemLocation = this.getUndoIconLocation();
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.font = '' + this.settings.headerTextFontSizeAmount + 'px ' + this.settings.headerTextFont;
+					this.ctx.fillText( 'Undo:', undoItemLocation.startPoint.x + this.settings.headerTextPaddingXAmount, undoItemLocation.startPoint.y - this.settings.headerTextPaddingYAmount );
+
+					var isMouseHoverUndo = this.isMouseHover( undoItemLocation );
+					var isUndoEnabled = this.isUndoEnabled();
+					this.ctx.globalAlpha = 0.08;
+					this.ctx.fillStyle = isUndoEnabled && isMouseHoverUndo ? this.settings.undoIconHoverColor : this.settings.boardColor;
+					this.ctx.fillRect( undoItemLocation.startPoint.x, undoItemLocation.startPoint.y,
+									   undoItemLocation.width + this.settings.lineWidth, undoItemLocation.height );
+					this.ctx.globalAlpha = 1;
+					this.ctx.fillStyle = this.settings.boardColor;
+					for( let x=0; x<=1; x++ ) {
+						this.drawLine( undoItemLocation.startPoint.x + (1 - x)*undoItemLocation.width, undoItemLocation.startPoint.y,
+									   this.settings.lineWidth, undoItemLocation.height,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=1; y++ ) {
+						this.drawLine( undoItemLocation.startPoint.x, undoItemLocation.startPoint.y + (1 - y)*this.settings.cellSize,
+									   undoItemLocation.width, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+					this.drawUndoIcon( undoItemLocation );
+				}
+
+				drawUndoIcon( undoItemLocation ) {
+					var undoCenter = new Point( ( undoItemLocation.startPoint.x + undoItemLocation.endPoint.x ) / 2, ( undoItemLocation.startPoint.y + undoItemLocation.endPoint.y ) / 2 );
+					var globalAlphaOld = this.ctx.globalAlpha;
+					var iconRadius = this.settings.ballSize * 1.3;
+					var iconCurvingRadius = this.settings.ballSize * 0.4;
+					var triangleLength = this.settings.ballSize * 0.75;
+					var triangleWidth = triangleLength/3.5;
+					var isMouseHoverUndo = this.isMouseHover( undoItemLocation );
+					var isUndoActive = this.isUndoActive();
+					var isUndoEnabled = this.isUndoEnabled();
+					undoCenter.y = undoCenter.y + triangleWidth / 6;
+					this.ctx.strokeStyle = isUndoEnabled && isMouseHoverUndo ? this.settings.undoIconHoverColor : this.settings.headerTextFontColor;
+					this.ctx.globalAlpha = isUndoActive ? 1.0 : 0.25;
+					this.ctx.lineWidth = this.settings.ballSize * 0.15;
+
+					this.ctx.beginPath();
+					this.ctx.arc( undoCenter.x - iconRadius/2 + iconCurvingRadius, undoCenter.y + iconRadius/2 - iconCurvingRadius, iconCurvingRadius, this.cache.halfPi, 2*this.cache.halfPi )
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.moveTo( undoCenter.x - iconRadius/2 + iconCurvingRadius, undoCenter.y + iconRadius/2 );
+					this.ctx.lineTo( undoCenter.x + iconRadius/2 - iconCurvingRadius, undoCenter.y + iconRadius/2 );
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.arc( undoCenter.x + iconRadius/2 - iconCurvingRadius, undoCenter.y + iconRadius/2 - iconCurvingRadius, iconCurvingRadius, 0, this.cache.halfPi )
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.moveTo( undoCenter.x + iconRadius/2, undoCenter.y + iconRadius/2 - iconCurvingRadius);
+					this.ctx.lineTo( undoCenter.x + iconRadius/2, undoCenter.y - iconRadius/2 + iconCurvingRadius );
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.arc( undoCenter.x + iconRadius/2 - iconCurvingRadius, undoCenter.y - iconRadius/2 + iconCurvingRadius, iconCurvingRadius, 3*this.cache.halfPi, 4*this.cache.halfPi );
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.moveTo( undoCenter.x + iconRadius/2 - iconCurvingRadius, undoCenter.y - iconRadius/2 );
+					this.ctx.lineTo( undoCenter.x - iconRadius/2 + triangleLength, undoCenter.y - iconRadius/2 );
+					this.ctx.stroke();
+
+					this.ctx.beginPath();
+					this.ctx.fillStyle = isUndoEnabled && isMouseHoverUndo ? this.settings.undoIconHoverColor : this.settings.headerTextFontColor;
+					this.ctx.moveTo( undoCenter.x - iconRadius/2, undoCenter.y - iconRadius/2 );
+					this.ctx.lineTo( undoCenter.x - iconRadius/2 + triangleLength, undoCenter.y - iconRadius/2 + triangleWidth );
+					this.ctx.lineTo( undoCenter.x - iconRadius/2 + triangleLength, undoCenter.y - iconRadius/2 - triangleWidth );
+					this.ctx.fill();
+
+					let oldTextAlign = this.ctx.textAlign;
+					this.ctx.fillStyle = isUndoEnabled && isMouseHoverUndo ? this.settings.undoIconHoverColor : this.settings.headerTextFontColor;
+					this.ctx.textAlign = 'center';
+					this.ctx.font = 'bold ' + this.settings.ballSize / 1.4 + 'px ' + this.settings.headerTextFont;
+					if( this.settings.maxUndoCount != null ) {
+						this.ctx.fillText( this.settings.maxUndoCount - this.data.undoCount, undoCenter.x, undoCenter.y + 1.15 * triangleWidth );
+					}
+
+					this.ctx.globalAlpha = globalAlphaOld;
+					this.ctx.textAlign = oldTextAlign;
+				}
+
+				isUndoActive() {
+					return this.data.undoSnapshot != null && ( this.settings.maxUndoCount == null || this.data.undoCount < this.settings.maxUndoCount ) && !this.startGame && !this.endGame;
+				}
+
+				isUndoEnabled() {
+					return !this.animationInProgress() && this.isUndoActive();
+				}
+
+				isMouseHover( undoItemLocation ) {
+					return this.data.mousePos != null && ( this.data.mousePos.x >= undoItemLocation.startPoint.x + this.settings.lineWidth ) && ( this.data.mousePos.x <= undoItemLocation.endPoint.x - this.settings.lineWidth ) && ( this.data.mousePos.y >= undoItemLocation.startPoint.y + this.settings.lineWidth ) && ( this.data.mousePos.y <= undoItemLocation.endPoint.y - this.settings.lineWidth );
+				}
+
+				drawPath() {
+					this.calculatePath();
+					for( const pathItemIndex in this.data.path ) {
+						//if( pathItemIndex == 0 ) continue;
+						const pathItem = this.data.path[ pathItemIndex ];
+						this.ctx.fillStyle=this.settings.pathCellColor;
+						this.ctx.fillRect( pathItem.x*this.settings.cellSize + this.settings.xFieldPos + this.settings.lineWidth,
+										   pathItem.y*this.settings.cellSize + this.settings.yFieldPos + this.settings.lineWidth,
+										   this.settings.cellSize - this.settings.lineWidth,
+										   this.settings.cellSize - this.settings.lineWidth );
+					}
+				}
+
+				calculatePath() {
+					if( this.data.activeCell == null || this.data.hoverCell == null ) return;
+					if( Cell.sameCell( this.data.activeCell, this.data.hoverCell ) ) return;
+					if( Cell.sameCell( this.data.hoverCellPrev, this.data.hoverCell ) ) return;
+					if( this.data.field[this.data.hoverCell.pos.y][this.data.hoverCell.pos.x].ball != null ) return;
+					const pathFinder = new PathFinder( this.data.activeCell, this.data.hoverCell, this.data.field );
+					this.data.path = pathFinder.getPath();
+					this.data.hoverCellPrev = this.data.hoverCell;
+				}
+
+				getCell( mousePos ) {
+					if( mousePos == null ) return null;
+					const cellHoverPos = new Point( this.data.mousePos.x - this.settings.xFieldPos, this.data.mousePos.y - this.settings.yFieldPos );
+					let xCellHover = Math.floor( (cellHoverPos.x - 0.5*this.settings.lineWidth) / this.settings.cellSize );
+					let yCellHover = Math.floor( (cellHoverPos.y - 0.5*this.settings.lineWidth) / this.settings.cellSize );
+					if( xCellHover < 0 || xCellHover >= this.settings.xFieldSize || yCellHover < 0 || yCellHover >= this.settings.yFieldSize ) {
+						xCellHover = null;
+						yCellHover = null;
+					}
+					if( xCellHover == null || yCellHover == null ) return null;
+					if( ( cellHoverPos.x < xCellHover * this.settings.cellSize + 0.5*this.settings.lineWidth && cellHoverPos.x >= xCellHover * this.settings.cellSize ) ||
+						( cellHoverPos.y < yCellHover * this.settings.cellSize + 0.5*this.settings.lineWidth && cellHoverPos.y >= yCellHover * this.settings.cellSize ) ) {
+						xCellHover = null;
+						yCellHover = null;
+					}
+					if( xCellHover == null || yCellHover == null ) return null;
+					return this.data.field[yCellHover][xCellHover];
+				}
+
+				captureMousePosition( event ) {
+					if( !event ) return;
+					var rect = this.canv.getBoundingClientRect();
+					this.data.mousePos = new Point( ( (event.clientX - rect.left) / (rect.right - rect.left) * this.canv.width ),
+													( (event.clientY - rect.top) / (rect.bottom - rect.top) * this.canv.height ) );
+				}
+
+				drawGrid() {
+					this.ctx.fillStyle = this.settings.boardColor;
+					this.ctx.fillRect( this.settings.xFieldPos, this.settings.yFieldPos,
+									   this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth, this.settings.cellSize*this.settings.yFieldSize + this.settings.lineWidth );
+					for( let x=0; x<=this.settings.xFieldSize; x++ ) {
+						this.drawLine( x*this.settings.cellSize + this.settings.xFieldPos, this.settings.yFieldPos,
+									   this.settings.lineWidth, this.settings.cellSize*this.settings.yFieldSize + this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=this.settings.yFieldSize; y++ ) {
+						this.drawLine( this.settings.xFieldPos, y*this.settings.cellSize + this.settings.yFieldPos,
+									   this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+				}
+
+				moveBall() {
+					if( this.data.moveAnimation.animationComplete == true ) return;
+					if( this.data.moveAnimation.animationInProgress == false ) {
+						if( this.data.targetCell != null ) {
+							if( !this.startGame && !this.endGame ) {
+								this.data.setUndoSnapshot();
+							}
+							this.data.moveAnimation.animationStartTime = performance.now();
+							this.data.moveAnimation.animationInProgress = true;
+							let animatedBall = this.data.activeCell.ball;
+							this.data.moveAnimation.animatedBall = animatedBall;
+							this.data.moveAnimation.animationPath = this.data.path;
+							this.data.moveAnimation.animationLength = ( this.data.moveAnimation.animationPath.length - 1 ) * ( this.settings.cellSize + this.settings.lineWidth );
+						} else if( this.initGame || this.data.fieldIsEmpty( this.settings ) || this.data.findSequenceCells( this.settings ).length > 0 ) {
+							this.data.moveAnimation.animationInProgress = false;
+							this.data.moveAnimation.animationComplete = true;
+						}
+					}
+					if( this.data.moveAnimation.animationInProgress == true ) {
+						const animationTimeElapsed = Math.max( 0, this.animationCurrentTime - this.data.moveAnimation.animationStartTime );
+						const animationChunkLength = this.settings.moveAnimationLength;
+						const animationTotalLength = animationChunkLength * ( this.data.moveAnimation.animationPath.length - 1 );
+						const currentAnimationChunk = Math.floor( animationTimeElapsed / animationChunkLength );
+						const prevPathPosition = this.data.moveAnimation.animationPath[currentAnimationChunk];
+						const nextPathPosition = this.data.moveAnimation.animationPath[currentAnimationChunk + 1] !== undefined ? this.data.moveAnimation.animationPath[currentAnimationChunk + 1] : this.data.moveAnimation.animationPath[currentAnimationChunk];
+
+						if( prevPathPosition === undefined || nextPathPosition === undefined || animationTimeElapsed > animationTotalLength ) {
+							let animatedBall = this.data.field[this.data.activeCell.pos.y][this.data.activeCell.pos.x].ball;
+							this.data.field[this.data.activeCell.pos.y][this.data.activeCell.pos.x].ball = null;
+							animatedBall.pos = new Point( this.data.targetCell.pos.x, this.data.targetCell.pos.y );
+							this.data.field[this.data.targetCell.pos.y][this.data.targetCell.pos.x].ball = animatedBall;
+							this.data.activeCell = null;
+							this.data.targetCell = null;
+							this.data.path = [];
+							this.data.moveAnimation.animationInProgress = false;
+							this.data.moveAnimation.animationComplete = true;
+							this.setHoverCell( false );
+						} else {
+							const cellSize = this.settings.cellSize + this.settings.lineWidth;
+							const animationChunkPercentage = ( animationTimeElapsed - ( currentAnimationChunk * animationChunkLength ) ) / animationChunkLength;
+							const relPosX = animationChunkPercentage * ( nextPathPosition.x - prevPathPosition.x );
+							const relPosY = animationChunkPercentage * ( nextPathPosition.y - prevPathPosition.y );
+							this.data.moveAnimation.animatedBall.pos = new Point( relPosX + (prevPathPosition.x), relPosY + (prevPathPosition.y) );
+							this.drawBall( this.data.moveAnimation.animatedBall, undefined, undefined, this.ctx, this.cache.ballsRenderCanvas );
+							this.requestAction( 'animation', null, this.canv.id );
+						}
+					}
+				}
+
+				deleteAfterMove() {
+					if( this.data.moveAnimation.animationComplete == false ) return;
+					if( this.data.deleteAnimation1.animationComplete == true ) return;
+					if( this.data.deleteAnimation1.animationInProgress == false ) {
+						let cells = this.data.findSequenceCells( this.settings );
+						if( !this.initGame && cells.length != 0 ) {
+							this.data.deleteAnimation1.animationInProgress = true;
+							this.data.deleteAnimation1.animationStartTime = performance.now();
+							this.data.deleteAnimation1.animatedCells = cells;
+							if( cells.length <= 5 ) {
+								Sounds.playSound( this, this.sounds.sound_pop );
+							} else {
+								Sounds.playSound( this, this.sounds.sound_poplarge );
+							}
+						} else {
+							this.data.deleteAnimation1.animationInProgress == false;
+							this.data.deleteAnimation1.animationComplete = true;
+						}
+					}
+					this.data.deleteAnimation1 = this.animateDeleteSequence( this.data.deleteAnimation1 );
+				}
+
+				spawnBalls() {
+					if( this.data.deleteAnimation1.animationComplete == false ) return;
+					if( this.data.spawnAnimation1.animationComplete == true ) return;
+					if( this.data.spawnAnimation1.animationInProgress == false ) {
+						this.data.recalculateNewBallsPosition( this.settings );
+						if( !this.initGame && this.data.deleteAnimation1.animatedCells.length == 0 || this.data.fieldIsEmpty( this.settings ) ) {
+							this.data.spawnAnimation1.animationInProgress = true;
+							this.data.spawnAnimation1.animationStartTime = performance.now();
+							this.data.spawnAnimation1.animatedBalls = this.data.newBalls;
+						} else {
+							this.data.spawnAnimation1.animationInProgress == false;
+							this.data.spawnAnimation1.animationComplete = true;
+						}
+					}
+
+					if( this.data.spawnAnimation1.animationInProgress == true ) {
+						const animationTimeElapsed = Math.max( 0, this.animationCurrentTime - this.data.spawnAnimation1.animationStartTime );
+						const animationTotalLength = this.settings.spawnAnimationLength;
+						if( animationTimeElapsed > animationTotalLength ) {
+							this.data.spawnAnimation1.animationInProgress = false;
+							this.data.spawnAnimation1.animationComplete = true;
+							this.data.putNewBallsToField( this.settings );
+							this.checkEndGameNoCells();
+							if( !this.endGame ) {
+								this.data.newBalls = this.data.initNewBalls( this.settings );
+							}
+						} else {
+							const animationPercentage = animationTimeElapsed / animationTotalLength;
+							for( const ballIndex in this.data.spawnAnimation1.animatedBalls ) {
+								const ball = this.data.spawnAnimation1.animatedBalls[ballIndex];
+								ball.rad = this.settings.newBallSize + ( this.settings.ballSize - this.settings.newBallSize ) * animationPercentage;
+								this.drawBall( ball, undefined, undefined, this.ctx, null );
+							}
+							this.requestAction( 'animation', null, this.canv.id );
+						}
+					}
+				}
+
+				deleteAfterSpawn() {
+					if( this.data.spawnAnimation1.animationComplete == false ) return;
+					if( this.data.deleteAnimation2.animationComplete == true ) return;
+					if( this.data.deleteAnimation2.animationInProgress == false ) {
+						let cells = this.data.findSequenceCells( this.settings );
+						if( !this.endGame && cells.length != 0 ) {
+							this.data.deleteAnimation2.animationInProgress = true;
+							this.data.deleteAnimation2.animationStartTime = performance.now();
+							this.data.deleteAnimation2.animatedCells = cells;
+							if( cells.length <= 5 ) {
+								Sounds.playSound( this, this.sounds.sound_pop );
+							} else {
+								Sounds.playSound( this, this.sounds.sound_poplarge );
+							}
+						} else {
+							this.data.deleteAnimation2.animationInProgress = false;
+							this.data.deleteAnimation2.animationComplete = true;
+							if( !this.endGame ) {
+								this.checkEndGameNoMoves();
+							}
+						}
+					}
+					this.data.deleteAnimation2 = this.animateDeleteSequence( this.data.deleteAnimation2 );
+				}
+
+				animateDeleteSequence( animation ) {
+					if( animation.animationInProgress == true ) {
+						const animationTimeElapsed = Math.max( 0, this.animationCurrentTime - animation.animationStartTime );
+						const animationTotalLength = this.settings.deleteAnimationLength;
+						if( animationTimeElapsed > animationTotalLength ) {
+							this.data.addScore( this.settings, animation.animatedCells.length );
+							for( const cellIndex in animation.animatedCells ) {
+								let cell = animation.animatedCells[cellIndex];
+								this.data.field[cell.pos.y][cell.pos.x].ball = null;
+							}
+							animation.animationInProgress = false;
+							animation.animationComplete = true;
+							this.data.recalculateNewBallsPosition( this.settings );
+						} else {
+							const animationPercentage = animationTimeElapsed / animationTotalLength;
+							for( const cellIndex in animation.animatedCells ) {
+								const ball = animation.animatedCells[cellIndex].ball;
+								ball.rad = this.settings.ballSize + ( 0.65 * this.settings.ballSize ) * animationPercentage;
+								let ballColors = this.hexToRgb( this.settings.colors[ball.colorIndex] );
+								ballColors.r = Math.floor( ballColors.r + ( 255 - ballColors.r ) * animationPercentage * animationPercentage );
+								ballColors.g = Math.floor( ballColors.g + ( 255 - ballColors.g ) * animationPercentage * animationPercentage );
+								ballColors.b = Math.floor( ballColors.b + ( 255 - ballColors.b ) * animationPercentage * animationPercentage );
+								ballColors.a = 1 - animationPercentage * animationPercentage * animationPercentage;
+								ball.colorAnim = this.rgbToHex( ballColors );
+								ball.colorAlpha = ballColors.a;
+								this.drawBall( ball, undefined, undefined, this.ctx, null );
+							}
+							this.requestAction( 'animation', null, this.canv.id );
+						}
+					}
+					return animation;
+				}
+
+				resetSequence() {
+					this.initGame = false;
+					if( this.data.moveAnimation.animationComplete == true && this.data.deleteAnimation1.animationComplete == true && this.data.spawnAnimation1.animationComplete == true && this.data.deleteAnimation2.animationComplete == true ) {
+						this.data.moveAnimation = new MoveAnimation();
+						this.data.deleteAnimation1 = new DeleteAnimation();
+						this.data.spawnAnimation1 = new SpawnAnimation();
+						this.data.deleteAnimation2 = new DeleteAnimation();
+						this.startGame = false;
+						if( this.data.fieldIsEmpty( this.settings ) || this.data.findSequenceCells( this.settings ).length > 0 ) {
+							this.draw();
+						}
+						this.setHoverCell( !this.settings.isMobile );
+						this.drawBoard();
+					}
+				}
+
+				drawEndGame() {
+					this.ctx.globalAlpha = 0.92;
+					this.ctx.fillStyle = this.settings.boardColor;
+					this.ctx.fillRect( this.settings.xFieldPos, this.settings.yFieldPos,
+									   this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth, this.settings.cellSize*this.settings.yFieldSize + this.settings.lineWidth );
+					this.ctx.globalAlpha = 1;
+					for( let x=0; x<=1; x++ ) {
+						this.drawLine( x*this.settings.xFieldSize*this.settings.cellSize + this.settings.xFieldPos, this.settings.yFieldPos,
+									   this.settings.lineWidth, this.settings.cellSize*this.settings.yFieldSize + this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=1; y++ ) {
+						this.drawLine( this.settings.xFieldPos, y*this.settings.yFieldSize*this.settings.cellSize + this.settings.yFieldPos,
+									   this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+
+					let endGameFontSize = this.settings.ballSize*2;
+					let endGameFontSizeAdj = endGameFontSize*1.17;
+					let endGameTextY = ( this.canv.height + this.settings.yFieldPos )/2 + this.settings.cellSize*3/4;
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.textAlign = 'center';
+					this.ctx.font = 'bold ' + endGameFontSizeAdj + 'px ' + this.settings.headerTextFont;
+					let endGameText = 'Game Over';
+					let endGameTextSize = this.ctx.measureText( endGameText ).height;
+					this.ctx.fillText( endGameText, this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, endGameTextY );
+
+					let startOverButtonLocation = this.getStartOverButtonLocation();
+					let isMouseOverStartOverButton = this.isMouseHover( startOverButtonLocation );
+
+					this.ctx.globalAlpha = 0.08;
+					this.ctx.fillStyle = isMouseOverStartOverButton ? this.settings.undoIconHoverColor : this.settings.boardColor;
+					this.ctx.fillRect( startOverButtonLocation.startPoint.x + this.settings.lineWidth, startOverButtonLocation.startPoint.y + this.settings.lineWidth,
+									   startOverButtonLocation.width - 2*this.settings.lineWidth, startOverButtonLocation.height - 2*this.settings.lineWidth );
+					this.ctx.globalAlpha = 1;
+					this.ctx.fillStyle = this.settings.boardColor;
+					for( let x=0; x<=1; x++ ) {
+						this.drawLine( x*(startOverButtonLocation.width - 3*this.settings.lineWidth) + startOverButtonLocation.startPoint.x + this.settings.lineWidth, startOverButtonLocation.startPoint.y + this.settings.lineWidth,
+									   this.settings.lineWidth, startOverButtonLocation.height - 2*this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+					for( let y=0; y<=1; y++ ) {
+						this.drawLine( startOverButtonLocation.startPoint.x + this.settings.lineWidth, y*(startOverButtonLocation.height - 3*this.settings.lineWidth) + startOverButtonLocation.startPoint.y + this.settings.lineWidth,
+									   startOverButtonLocation.width - 2*this.settings.lineWidth, this.settings.lineWidth,
+									   this.settings.gridColor );
+					}
+
+					let startOverText = 'Play Again';
+					let startOverFontSize = this.settings.ballSize*3/4;
+					let startOverFontSizeAdj = startOverFontSize*1.17;
+					let yPadding = this.settings.cellSize/6;
+					this.ctx.font = 'bold ' + startOverFontSizeAdj + 'px ' + this.settings.headerTextFont;
+					this.ctx.fillStyle = isMouseOverStartOverButton ? this.settings.undoIconHoverColor : this.settings.headerTextFontColor;
+					this.ctx.fillText( startOverText, this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, startOverButtonLocation.startPoint.y + yPadding + startOverFontSize + this.settings.lineWidth );
+
+					let topScoresFontSize = this.settings.ballSize*2/3;
+					let topScoresFontSizeAdj = topScoresFontSize*1.17;
+					let newHighScoreShown = false;
+					this.ctx.font = 'bold ' + topScoresFontSizeAdj + 'px ' + this.settings.headerTextFont;
+					this.ctx.textAlign = 'center';
+					for( let y=0; y<this.topScores.length; y++ ) {
+						if( !newHighScoreShown && this.data.score == this.topScores[y] ) {
+							newHighScoreShown = true;
+							this.ctx.fillStyle = '#DD2222';
+							this.ctx.fillText( '> ' + this.topScores[y] + ' <', this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, endGameTextY - endGameFontSizeAdj - this.topScores.length*topScoresFontSizeAdj + y*topScoresFontSizeAdj );
+						} else {
+							this.ctx.fillStyle = this.settings.headerTextFontColor;
+							this.ctx.fillText( this.topScores[y], this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, endGameTextY - endGameFontSizeAdj - this.topScores.length*topScoresFontSizeAdj + y*topScoresFontSizeAdj );
+						}
+					}
+
+					this.ctx.font = 'bold ' + topScoresFontSizeAdj*1.15 + 'px ' + this.settings.headerTextFont;
+					this.ctx.fillText( 'Top ' + this.topScores.length + ' Scores:', this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, endGameTextY - endGameFontSizeAdj - (this.topScores.length + 1)*topScoresFontSizeAdj - topScoresFontSizeAdj/2 );
+					if( newHighScoreShown ) {
+						this.ctx.font = 'bold ' + topScoresFontSizeAdj*1.3 + 'px ' + this.settings.headerTextFont;
+						this.ctx.fillStyle = '#DD2222';
+						this.ctx.fillText( 'New High Score!', this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2, endGameTextY - endGameFontSizeAdj - (this.topScores.length + 1)*topScoresFontSizeAdj - topScoresFontSizeAdj*1.15 - topScoresFontSizeAdj );
+					}
+
+					this.ctx.fillStyle = this.settings.headerTextFontColor;
+					this.ctx.textAlign = 'left';
+					this.ctx.font = this.settings.cellSize/5 + 'px ' + this.settings.headerTextFont;
+					const initialTextBaseline = this.ctx.textBaseline;
+					this.ctx.textBaseline = 'hanging';
+					this.ctx.globalAlpha = 0.5;
+					this.ctx.fillText( 'Version: ' + this.settings.version, this.settings.xFieldPos + this.settings.cellSize*0.1 + this.settings.lineWidth, this.settings.yFieldPos + this.settings.cellSize*0.1 + this.settings.lineWidth );
+					
+					this.ctx.textBaseline = initialTextBaseline;
+					this.ctx.globalAlpha = 1;
+				}
+
+				getStartOverButtonLocation() {
+					let startOverFontSize = this.settings.ballSize*3/4;
+					let startOverFontSizeAdj = startOverFontSize*1.17;
+					this.ctx.font = 'bold ' + startOverFontSizeAdj + 'px ' + this.settings.headerTextFont;
+					let startOverText = 'Play Again';
+					let startOverTextSize = this.ctx.measureText( startOverText );
+					let xPadding = this.settings.cellSize/4;
+					let yPadding = this.settings.cellSize/6;
+					let buttonLeftX = this.settings.xFieldPos + (this.settings.cellSize*this.settings.xFieldSize + this.settings.lineWidth)/2 - startOverTextSize.width/2 - xPadding - this.settings.lineWidth;
+					let buttonRighX = buttonLeftX + startOverTextSize.width + 2*xPadding + 2*this.settings.lineWidth;
+					let buttonTopY = ( this.canv.height + this.settings.yFieldPos )/2 + this.settings.cellSize - yPadding - this.settings.lineWidth + this.settings.cellSize*3/4;
+					let buttonBotY = buttonTopY + startOverFontSizeAdj + 2*yPadding + 2*this.settings.lineWidth;
+					return {
+						startPoint: new Point( buttonLeftX, buttonTopY ),
+						endPoint: new Point( buttonRighX, buttonBotY ),
+						width: buttonRighX - buttonLeftX,
+						height: buttonBotY - buttonTopY
+					};
+				}
+
+				drawBalls() {
+					for( let y=0; y<this.data.field.length; y++ ) {
+						let row = this.data.field[y];
+						for( let x=0; x<row.length; x++ ) {
+							let cell = row[x];
+							if( cell.ball == null ) continue;
+
+							if( this.data.moveAnimation.animationInProgress == true ) {
+								if( Cell.sameCell( this.data.activeCell, cell ) ) continue;
+							}
+
+							let doDrawBall = true;
+							if( this.data.deleteAnimation1.animationInProgress == true && this.data.deleteAnimation1.animatedCells.length > 0 ) {
+								for( let cellIndex in this.data.deleteAnimation1.animatedCells ) {
+									if( Cell.sameCell( this.data.deleteAnimation1.animatedCells[cellIndex], cell ) ) doDrawBall = false;
+								}
+							}
+							if( this.data.deleteAnimation2.animationInProgress == true && this.data.deleteAnimation2.animatedCells.length > 0 ) {
+								for( let cellIndex in this.data.deleteAnimation2.animatedCells ) {
+									if( Cell.sameCell( this.data.deleteAnimation2.animatedCells[cellIndex], cell ) ) doDrawBall = false;
+								}
+							}
+
+							if( doDrawBall ) {
+								this.drawBall( cell.ball, undefined, undefined, this.ctx, this.cache.ballsRenderCanvas );
+							}
+						}
+					}
+				}
+
+				drawNewBalls() {
+					if( this.data.spawnAnimation1.animationInProgress == true ) return;
+					for( const ballIndex in this.data.newBalls ) {
+						const ball = this.data.newBalls[ballIndex];
+						this.drawBall( ball, undefined, undefined, this.ctx, this.cache.nextBallsRenderCanvas );
+					}
+				}
+
+				drawBall( ball, pointOverride, radOverride, ctx, cacheCtx ) {
+					if( ctx === undefined ) ctx = this.ctx;
+					if( cacheCtx === undefined || cacheCtx == null ) {
+						if( !ball || ( ( !ball.pos || ball.pos.x == null || ball.pos.y == null ) && ( !pointOverride || pointOverride.x == null || pointOverride.y == null ) ) ) return;
+						if( this.settings.draw3dBalls == true ) {
+							this.draw3dBall( ball, pointOverride, radOverride, ctx );
+						} else {
+							this.draw2dBall( pointOverride === undefined ? this.translateCoords( ball.pos.x, ball.pos.y ) : pointOverride, radOverride === undefined ? ball.rad : radOverride, this.getBallColor( ball ), this.getBallAlpha( ball ), ctx );
+						}
+					} else {
+						let coords;
+						if( pointOverride === undefined ) {
+							coords = this.translateCoords( ball.pos.x, ball.pos.y, false );
+						} else {
+							coords = pointOverride;
+						}
+						const ballRadius = radOverride != null && radOverride !== undefined ? radOverride : ball.rad;
+						const ballDiameter = 2*ballRadius;
+						ctx.drawImage( cacheCtx, 1 + ball.colorIndex*(ballDiameter+2), 1, ballDiameter, ballDiameter, Math.round( coords.x -ballRadius ), Math.round( coords.y - ballRadius ), ballDiameter, ballDiameter );
+					}
+				}
+
+				draw2dBall( pos, radius, color, alpha, ctx ) {
+					if( ctx === undefined ) ctx = this.ctx;
+					this.drawCircle( pos, radius, color, alpha, true, ctx );
+				}
+
+				draw3dBall( ball, pointOverride, radOverride, ctx ) {
+					if( ctx === undefined ) ctx = this.ctx;
+					for( let j = 0; j < this.settings.lightSources.length; j++ ) {
+						let light = this.settings.lightSources[j];
+						ctx.fillStyle = this.drawGradient( ball, light, this.settings.lightAmbient, pointOverride, radOverride, ctx );
+						ctx.globalCompositeOperation = light.comp;
+						this.draw2dBall( pointOverride === undefined ? this.translateCoords( ball.pos.x, ball.pos.y ) : pointOverride, radOverride === undefined ? ball.rad : radOverride, null, this.getBallAlpha( ball ), ctx );
+					}
+					ctx.globalCompositeOperation = "source-over";
+				}
+
+				drawCircle( pos, radius, color, alpha, doFill, ctx ) {
+					if( ctx === undefined ) ctx = this.ctx;
+					ctx.globalAlpha = alpha;
+					if( color != null ) {
+						ctx.fillStyle = color;
+					}
+					ctx.beginPath();
+					ctx.arc( pos.x, pos.y, radius, 0, this.cache.twoPi );
+					if( doFill ) {
+						ctx.fill();
+					} else {
+						const lineWidthTemp = ctx.lineWidth;
+						ctx.lineWidth = 1;
+						ctx.stroke();
+						ctx.lineWidth = lineWidthTemp;
+					}
+					ctx.globalAlpha = 1.00;
+				}
+
+				drawRectForCell( cell, color ) {
+					this.ctx.fillStyle = color;
+					this.ctx.fillRect( cell.pos.x*this.settings.cellSize + this.settings.xFieldPos + this.settings.lineWidth,
+									   cell.pos.y*this.settings.cellSize + this.settings.yFieldPos + this.settings.lineWidth,
+									   this.settings.cellSize - this.settings.lineWidth,
+									   this.settings.cellSize - this.settings.lineWidth );
+				}
+
+				drawLine( x1, y1, x2, y2, color ) {
+					this.ctx.fillStyle = color;
+					this.ctx.fillRect( x1, y1, x2, y2 );
+				}
+
+				getBallColor( ball ) {
+					if( ball.colorAnim != null ) {
+						return ball.colorAnim;
+					} else if( ball.colorIndex != null ) {
+						return this.settings.colors[ball.colorIndex];
+					}
+				}
+
+				getBallAlpha( ball ) {
+					if( ball.colorAlpha != null ) {
+						return ball.colorAlpha;
+					} else {
+						return 1.00;
+					}
+				}
+
+				translateCoords( posX, posY ) {
+					if( posX == null ) posX = 0;
+					if( posY == null ) posY = 0;
+					return new Point( (posX+0.5)*this.settings.cellSize + this.settings.xFieldPos + this.settings.lineWidth/2,
+									  (posY+0.5)*this.settings.cellSize + this.settings.yFieldPos + this.settings.lineWidth/2 );
+				}
+
+				drawGradient( ball, light, ambient, pointOverride, radOverride, ctx ) {
+					if( ctx == null ) ctx = this.ctx;
+					let radius = radOverride === undefined ? ball.rad : radOverride;
+					let ballColor = this.getBallColor( ball );
+
+					let cacheKey = '' + ballColor + '_' + radius + '_' + light.xScale + '_' + light.yScale + '_' + light.spec + '_' + light.specPower + '_' + light.useAmbient; //radius, ballColor, spec => [color stops (r,g,b)], light position (x,y), distance, spread
+					let doCache = false;
+					let cachedBallData;
+					if( radius == this.settings.ballSize || radius == this.settings.newBallSize ) {
+						doCache = true;
+						cachedBallData = this.cache.ballDataCache[ cacheKey ];
+					}
+					if( cachedBallData === undefined ) {
+						var xLightPosition = light.xScale * radius;
+						var yLightPosition = light.yScale * radius;
+
+						var distance = Math.sqrt( xLightPosition*xLightPosition + yLightPosition*yLightPosition ); // get the distance to the light source
+						distance *= light.spec ? 0.5 : 1; // if the light is a specular source then move it to half its position away
+						var dimming = 1 - Math.min( 1, ( distance / ( 4*radius ) ) ); // add some dimming so that the light does not wash out.
+						var lightRotate = ( 1 - dimming ) * this.cache.halfPi; // add a bit of pretend rotation on the z axis. This will bring in a little backlighting
+						var spread = Math.sin( lightRotate ) * radius * (light.spec ? 0.5 : 1); // spread the light a bit when near the edges. Reduce a bit for spec light
+
+						var colorStops = [];
+						var r,g,b;  // colour channels
+						var ballColors = this.hexToRgb( ballColor );
+						var step = 5*this.cache.halfPi/radius; // use the radius to work out what step will cover a pixel (approx)
+						for( var i = 0; i < this.cache.halfPi; i += step ) { // for each pixel going out on the radius add the calculated light value
+							let coeff = 1;
+							const highlight = light.highlight && i == 0 ? 50 : 0;
+							if( light.spec ) {
+								// fake spec light reduces dimming fall off
+								// light reflected has sharper falloff
+								// do not include back light via Math.abs
+								coeff = Math.max( 0, Math.cos( ( i + lightRotate ) * light.specPower ) * (1-dimming/3) );
+							} else {
+								// light value is the source lum * the cos of the angle to the light
+								// Using the abs value of the refelected light to give fake back light.
+								// add a bit of rotation with (lightRotate) 
+								// dimming to stop washing out 
+								// then clamp so does not go below zero
+								coeff = Math.abs( Math.cos( i + lightRotate ) );
+							}
+							r = ballColors.r * coeff + highlight;
+							g = ballColors.g * coeff + highlight;
+							b = ballColors.b * coeff + highlight;
+							if( light.useAmbient ) { // add ambient light //moved to addColorStop
+								r += ambient[0];
+								g += ambient[1];
+								b += ambient[2];
+							}
+							colorStops.push( { r: Math.floor(r), g: Math.floor(g), b: Math.floor(b), index: i/this.cache.halfPi } ); // add the colour stop with the amount of the effect we want
+						}
+
+						cachedBallData = {
+							position: new Point( xLightPosition, yLightPosition ),
+							distance: distance,
+							spread: spread,
+							colorStops: colorStops
+						};
+						if( doCache ) {
+							this.cache.ballDataCache[ cacheKey ] = cachedBallData;
+						}
+					}
+
+					var ballCoords = pointOverride === undefined ? this.translateCoords( ball.pos.x, ball.pos.y ) : pointOverride;
+					var gradient = ctx.createRadialGradient( cachedBallData.position.x + ballCoords.x, cachedBallData.position.y + ballCoords.y, cachedBallData.spread, ballCoords.x, ballCoords.y, radius + cachedBallData.distance );
+					for( let colorStopIndex in cachedBallData.colorStops ) {
+						let colorStop = cachedBallData.colorStops[ colorStopIndex ];
+						gradient.addColorStop( colorStop.index, "rgba(" + colorStop.r + "," + colorStop.g + "," + colorStop.b + "," + light.lum + ")" );
+					}
+					return gradient;
+				}
+
+				hexToRgb( hex ) {
+					var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+					return result ? {
+						r: parseInt(result[1], 16),
+						g: parseInt(result[2], 16),
+						b: parseInt(result[3], 16)
+					} : null;
+				}
+
+				rgbToHex( color ) {
+					let r = color.r.toString(16); r = ( r.length < 2 ? '0' : '' ) + r;
+					let g = color.g.toString(16); g = ( g.length < 2 ? '0' : '' ) + g;
+					let b = color.b.toString(16); b = ( b.length < 2 ? '0' : '' ) + b;
+					return '#' + r + g + b;
+				}
+			}
+
+			class PathFinder {
+				constructor( startCell, endCell, field ) {
+					this.startCell = startCell;
+					this.endCell = endCell;
+					this.field = field;
+					this.currentPaths = [];
+				}
+
+				getPath() {
+					let result = [];
+					if( !this.startConditionsAreMet() ) return result;
+					let startPath = new Path( this.startCell.pos, this.endCell, this.field, [ this.startCell.pos ], this.initUsedPointsMap() );
+					this.currentPaths.push( startPath );
+
+					while( true ) {
+						if( this.currentPaths.length == 0 ) break;
+						let newIterationPaths = [];
+						for( let currentPathIndex in this.currentPaths ) {
+							const currentPath = this.currentPaths[currentPathIndex];
+							currentPath.getAdjacentPoints();
+							if( currentPath.hasAdjacentPoints() ) {
+								const pathToEndPoint = currentPath.getPathToEndPoint();
+								if( pathToEndPoint == null ) {
+									const newIterationPathsCurrent = currentPath.getNewIterationPaths();
+									for( let newIterationPathCurrentIndex in newIterationPathsCurrent ) {
+										const newIterationPathCurrent = newIterationPathsCurrent[newIterationPathCurrentIndex];
+										newIterationPaths.push( newIterationPathCurrent );
+									}
+								} else {
+									result = pathToEndPoint;
+									return result;
+								}
+							}
+						}
+						this.currentPaths = newIterationPaths;
+					}
+					return result;
+				}
+
+				initUsedPointsMap() {
+					let usedPointsMap = [];
+					for( let y = 0; y < this.field.length; y++ ) {
+						usedPointsMap.push( [] );
+						for( let x = 0; x < this.field[y].length; x++ ) {
+							usedPointsMap[y].push( 0 );
+						}
+					}
+					usedPointsMap[this.startCell.pos.y][this.startCell.pos.x] = 5;
+					return usedPointsMap;
+				}
+
+				startConditionsAreMet() {
+					return this.field[this.startCell.pos.y][this.startCell.pos.x].ball != null && this.field[this.endCell.pos.y][this.endCell.pos.x].ball == null;
+				}
+			}
+
+			class Path {
+				constructor( currentPoint, endCell, field, currentPath, usedPointsMap ) {
+					this.currentPoint = currentPoint;
+					this.endCell = endCell;
+					this.field = field;
+					this.currentPath = currentPath;
+					this.usedPointsMap = usedPointsMap;
+					this.adjacentPoints = [];
+				}
+
+				getAdjacentPoints() {
+					if( this.currentPoint.y < this.field.length - 1 ) {
+						let downPoint = new Point( this.currentPoint.x, this.currentPoint.y + 1 );
+						this.addPointIfNotUsed( downPoint );
+					}
+					if( this.currentPoint.y > 0 ) {
+						let upPoint = new Point( this.currentPoint.x, this.currentPoint.y - 1 );
+						this.addPointIfNotUsed( upPoint );
+					}
+					if( this.currentPoint.x > 0 ) {
+						let leftPoint = new Point( this.currentPoint.x - 1, this.currentPoint.y );
+						this.addPointIfNotUsed( leftPoint );
+					}
+					if( this.currentPoint.x < this.field[0].length - 1 ) {
+						let rightPoint = new Point( this.currentPoint.x + 1, this.currentPoint.y );
+						this.addPointIfNotUsed( rightPoint );
+					}
+				}
+
+				hasAdjacentPoints() {
+					return this.adjacentPoints.length != 0;
+				}
+
+				getPathToEndPoint() {
+					for( let adjacentPointIndex in this.adjacentPoints ) {
+						let adjacentPoint = this.adjacentPoints[adjacentPointIndex];
+						if( Cell.samePoint( adjacentPoint, this.endCell.pos ) ) {
+							this.currentPath.push( adjacentPoint );
+							return this.currentPath;
+						}
+					}
+					return null;
+				}
+
+				getNewIterationPaths() {
+					let newIterationPaths = [];
+					for( let adjacentPointIndex in this.adjacentPoints ) {
+						let adjacentPoint = this.adjacentPoints[adjacentPointIndex];
+						this.usedPointsMap[adjacentPoint.y][adjacentPoint.x] = 1;
+						let newIterationPoints = [];
+						for( let currentPathIndex in this.currentPath ) { //clone to newIterationPoints
+							let currentPathItem = this.currentPath[currentPathIndex];
+							let currentPathItemClone = new Point( currentPathItem.x, currentPathItem.y );
+							newIterationPoints.push( currentPathItemClone );
+						}
+						newIterationPoints.push( adjacentPoint );
+						let newIterationPath = new Path( adjacentPoint, this.endCell, this.field, newIterationPoints, this.usedPointsMap );
+						newIterationPaths.push( newIterationPath );
+					}
+					return newIterationPaths;
+				}
+
+				addPointIfNotUsed( point ) {
+					if( this.field[point.y][point.x].ball == null && this.usedPointsMap[point.y][point.x] == 0 ) {
+						this.adjacentPoints.push( point );
+					}
+				}
+			}
+			
+			class Sounds {
+				constructor() {
+					this.sound_pop = 'data:audio/mpeg;base64,/+NAxAAAAAAAAAAAAFhpbmcAAAAPAAAABAAABK8AUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQr6+vr6+vr6+vr6+vr6+vr6+vr6+vr6+vr/Ly8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vL/////////////////////////////////AAAAPExBTUUzLjEwMAQ3AAAAAAAAAAAVCCQDACEAAcwAAASvFVqRDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/jYMQAEhCqbB9MYAAxG2P1f6wwMFnTN169fY4MFBLAAA4iOzM//SWBARIl6+xw4VwIAcPIV68CAmD7/OCd/6wf+CH/5cP9/Kf/8H/wQ///5cH34IOVAjGHA3AwDADve71blctiZBm0ogtGvAG1RNGMMQMAFElZapx31CowKnZcka8DXwuJmXCBpZ25MBBYNdl+EOppIGbQVG4s4IfS8qWgiERQHaxDkDkAaBuMzYeEh+5PmTKZ00i1xxqYwgDZhUtYqSaTA7OWBK8bqxGET8mUc1Atxzp2DGUKottblzmQPKGlKAwC+jvwAzRGKGJ/b/tdd2FwNFK7etu5DzOnATswA6TconDmcqvwFNNzdh19tLfzCGLssdedd+pDDqQI/kPUk3BdHNymtUhqlwnH/gGXVKKMRaBMYVf/43DE41IUFnL/mtgAXXf227GdDH23d17nIsXJfK7Ujkb7SWlgnL8KteM2pc7sZpbtWUXJqTYxjOzSyuH71DF5Q7FivRw3TOpZjcXxlGNuvGrvYGiF6J5Q9f5ugnZbTxi7I4zOVq9yzhlWwylm7vNY61fVvMscyiUhllijMgaLJjOBEwg9PJGUKYBcWVULO3sXbEr0pzdVdyX11wGcvLHkMcccWbMDgdh7lEwkRCz23ZitUxBau4tSbGlEonijciay7sSf6NQezHUelkPuk/DIEFoTDdWz9XDKDZVDNmnrP3KIvDzJ6rx0P7lNWllP1Mo1nbp6GHpiGmaNdZZL7r0Jsv/p2sdZayiNWV2JZnXu1qGB9xSwwK8/lRm8hiLd2fP3QwxjWrU3dZbrU1N9uzclM1bpItT2asWuUmmuR+SUcj3RPg7kcdGhk8vd2tTfvHWUq///eOWP6wxr39VZzHuVu/ldvY8hlpdA7dau7//jUMT6RNP+Xl+bwAHKYTXkzxwxhnM55dhym7+5Tl39d1VpcZeilUxBTUVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/jEMTYAAAD/AHAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=';
+					this.sound_poplarge = 'data:audio/mpeg;base64,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qRZeHz1+i1axSMNbRXBPRG6O0xnNbcFoOVzEhwtyimTgLuFCRRbuFN9AwgHTdHTP4jGx4asdrwyKQosy0Jn8GnhWrMV2uv203zZFUf/jMMTUHpGufxx6RpWFnwvAfv0/d9TYHQys6hZVT/1iljJ1QD9eJvr8fo47F/fd+ue8ddnYSOt+1XXaHHYJDaJVLI1GGzGxM9LwmtLCi8ymkpYtQuujnzPOcEQwHGIMBdXZYgCAO8Y8rVe/zZ4BHHoqK+zn+a6GuTAuC/Mi+OYBgAoHEHJCjvpdtSsVjxvb08HIlctb+mp4u1pjwf/jMMToIRIidx1PGAGkoVNKkUirixm4hh0KhnVCtniwnkddWVu4jC6ny+of7PBzTUFUOCg1hqbmZ65woOEPbU3Rhc4kFcOUDDVGhxm+kV9E8zHtHvYFJG1XwdOGMWgYixFK9gp5iV+IkbwLuceE8TisjwW+dnprcSI6Y4tKt1tP6X3JExLm9a67Bp9N9T1+PvUGFHpL1fHpEhqnbv/jUMTyPzQSbl+aeABR3+HNsbDoex1e/ROzaRiiOAJwBQPf78b3u/xGCISQ5ukB+qqa8ICogIgRkyXzrMNDgoGAawowBKbg4EGCwxUBHVG7u6h6kCqZDJFcHAAYl/rDPq0NK6LLL+MkQcLNCEx6BMyFxmcYUFWGWO1AyfBZo8EEp3Pp5y+xpOqnu89n6YcVn6GWLDRJhsIgScXbclWN+Rt0lv3YzBdZ3PlEajDtV3+lzkuTAEHwqIP03eUVnZdGxFeXK+Mzdnbn003Wm34hmci0Ncq1Oy2evSymq1Y5OWZLCalNGXpygGmqw8+LWmUuw12WQ9Eo1Ka0rosYxfsX4a7RxO9Gaf/jYMTtTlQWgx+byAAppVLdXWx4Rq9UiHw5WwiMYjcbjM12bllLjNZVr81flPw7HJ2m7x2ZyIzk/MyiV2pTyU36laVUlzKKxuGq8xHonOUNazbpqlPUsfP3lWREGBBgBBAhBAgHvAYSi2CKAuFSVjHC1+P4K6Sn41DqQBGf8LcLcS4lxLa/8cIlojMyKX/5eMyVODDDvEu//yWcyMzVEyN0v//0kx3DyMVD2JMkiaUTD///8YYzSJw8hxFIwLpOJccRuXf////5kktExSSSMjYxWapJOjnVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/4zDE3x8jdlo1kmgAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/4xDE2AAAA0gBwAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+					this.sound_undo = 'data:audio/mpeg;base64,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';
+					this.sound_gameover = 'data:audio/mpeg;base64,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';
+					this.sound_hiscore = 'data:audio/mpeg;base64,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';
+					this.sound_newgame = this.sound_gameover;
+				}
+
+				static playSound( game, soundFile ) {
+					if( !game.settings.playSound ) return;
+					if( !soundFile ) return;
+					let sound = new Audio( soundFile );
+					sound.play();
+				}
+			}
+		</script>
+		<script type="text/javascript">
+			var linesGame;
+			window.onload = function() {
+				linesGame = new GameLines( null, 'lines', { isLandscape: null, boardSize: null } );
+			}
+		</script>
+	</body>
+</html>
