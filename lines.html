@@ -591,7 +591,7 @@
 					this.initTopScores();
 					if( gameLinesInstances === undefined ) gameLinesInstances = new Map();
 
-					if( canvasId === undefined || canvasId == null ) canvasId = 'gameLinesInstance_' + (Object.keys(gameLinesInstances).length + 1);
+					if( canvasId === undefined || canvasId == null ) canvasId = 'gameLinesInstance_' + ( Object.keys(gameLinesInstances).length + 1 );
 					this.parentElement = null;
 					if( elementId !== undefined && elementId != null ) {
 						this.parentElement = document.getElementById( elementId );
@@ -603,8 +603,8 @@
 					this.canv = document.createElement( 'canvas' );
 					this.canv.id = canvasId;
 					this.parentElement.appendChild( this.canv );
-					this.ctx = this.canv.getContext("2d");
-					this.ctx.scale(2,2);
+					this.ctx = this.canv.getContext( '2d' );
+					this.ctx.scale( 2, 2 );
 
 					this.settings = new Settings( this.parentElement, this.canv, params );
 
